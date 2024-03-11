@@ -7,6 +7,11 @@ Allows a client to turn on "quiet mode" which hides chat messages
 This client doesn't handle system messages, and assumes none of them contain chat messages
 """
 
+import os.path
+import json
+from pathlib import Path
+
+from quarry.net.auth import Profile, OfflineProfile
 from twisted.internet import reactor
 from quarry.types.uuid import UUID
 from quarry.net.proxy import DownstreamFactory, Bridge
@@ -14,6 +19,32 @@ from quarry.net.proxy import DownstreamFactory, Bridge
 
 class QuietBridge(Bridge):
     quiet_mode = False
+
+    def make_profile(self):
+        accounts_file = f"{Path.home()}/.local/share/PrismLauncher/accounts.json"
+        if not os.path.isfile(accounts_file):
+            print("Failed to login falling back to offline profile")
+            return OfflineProfile(self.downstream.display_name)
+
+        with open(accounts_file) as data:
+            data = json.load(data)
+
+        account = data['accounts'][0]
+        # not sure
+        client_token = account['ygg']['token']
+        access_token = account['ygg']['token']
+
+        # verified on https://mcuuid.net
+        uuid = account['profile']['id']
+        display_name = account['profile']['name']
+
+        print(f"logged in to account {display_name} {uuid}")
+
+        return Profile(
+                display_name=display_name,
+                client_token=client_token,
+                access_token=access_token,
+                uuid=uuid)
 
     def packet_upstream_chat_command(self, buff):
         command = buff.unpack_string()
