@@ -44,7 +44,7 @@ class QuietBridge(Bridge):
                 display_name=display_name,
                 client_token=client_token,
                 access_token=access_token,
-                uuid=uuid)
+                uuid=UUID.from_hex(uuid))
 
     def packet_upstream_chat_command(self, buff):
         command = buff.unpack_string()
