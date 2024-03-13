@@ -10,41 +10,54 @@ This client doesn't handle system messages, and assumes none of them contain cha
 import os.path
 import json
 from pathlib import Path
+from typing import Optional
 
 from quarry.net.auth import Profile, OfflineProfile
 from twisted.internet import reactor
 from quarry.types.uuid import UUID
-from quarry.net.proxy import DownstreamFactory, Bridge
+from quarry.net.proxy import Downstream, DownstreamFactory, Bridge
 
+class Credentials:
+    display_name: str
+    uuid: str
+    client_token: str
+    access_token: str
+
+def get_credentials() -> Optional[Credentials]:
+    accounts_file = f"{Path.home()}/.local/share/PrismLauncher/accounts.json"
+    if not os.path.isfile(accounts_file):
+        return None
+
+    with open(accounts_file) as data:
+        data = json.load(data)
+
+    account = data['accounts'][0]
+    creds = Credentials()
+
+    # not sure
+    creds.client_token = account['ygg']['token']
+    creds.access_token = account['ygg']['token']
+
+    # verified on https://mcuuid.net
+    creds.uuid = account['profile']['id']
+    creds.display_name = account['profile']['name']
+    return creds
 
 class QuietBridge(Bridge):
     quiet_mode = False
 
     def make_profile(self):
-        accounts_file = f"{Path.home()}/.local/share/PrismLauncher/accounts.json"
-        if not os.path.isfile(accounts_file):
+        credentials = get_credentials()
+        if credentials is None:
             print("Failed to login falling back to offline profile")
             return OfflineProfile(self.downstream.display_name)
-
-        with open(accounts_file) as data:
-            data = json.load(data)
-
-        account = data['accounts'][0]
-        # not sure
-        client_token = account['ygg']['token']
-        access_token = account['ygg']['token']
-
-        # verified on https://mcuuid.net
-        uuid = account['profile']['id']
-        display_name = account['profile']['name']
-
-        print(f"logged in to account {display_name} {uuid}")
+        print(f"logged in to account {credentials.display_name} {credentials.uuid}")
 
         return Profile(
-                display_name=display_name,
-                client_token=client_token,
-                access_token=access_token,
-                uuid=UUID.from_hex(uuid))
+                display_name=credentials.display_name,
+                client_token=credentials.client_token,
+                access_token=credentials.access_token,
+                uuid=UUID.from_hex(credentials.uuid))
 
     def packet_upstream_chat_command(self, buff):
         command = buff.unpack_string()
@@ -163,8 +176,36 @@ class QuietBridge(Bridge):
                                self.downstream.buff_type.pack('B', 0),
                                self.downstream.buff_type.pack_uuid(UUID(int=0)))
 
+class Protocol2b2t(Downstream):
+    def auth_ok(self, data):
+        if data is None:
+            print("Warning: got empty response from mojang session server")
+            print("         trying to fallback to UUID from credentials ...")
+            credentials = get_credentials()
+            if credentials is None:
+                raise RuntimeError("""
+                The server responded with 204 to our hasJoined request
+                so we did not get the uuid of the joined user
+                and requesting the uuid from the credential helper failed as well
+
+                There is a chance that it works if you try it again.
+                Alternatively you try calling `get_credentials()` and debug
+                why it does not find your login details.
+                """)
+            if credentials.uuid == "" or credentials.uuid is None:
+                raise RuntimeError("""
+                The server responded with 204 to our hasJoined request
+                so we did not get the uuid of the joined user.
+
+                As a fix you can include your UUID in the credentials file
+                then it can be used as a fallback if the request to the
+                mojang session server failed.
+                """)
+            data = {'id': credentials.uuid}
+        return super().auth_ok(data)
 
 class QuietDownstreamFactory(DownstreamFactory):
+    protocol = Protocol2b2t
     bridge_class = QuietBridge
     motd = "Proxy Server"
 
