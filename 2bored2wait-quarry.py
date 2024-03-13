@@ -59,6 +59,13 @@ class QuietBridge(Bridge):
                 access_token=credentials.access_token,
                 uuid=UUID.from_hex(credentials.uuid))
 
+    def downstream_disconnected(self):
+        """
+        Called when the connection to the remote client is closed.
+        """
+        if self.upstream:
+            print("Client disconnected. We stay connected.")
+
     def packet_upstream_chat_command(self, buff):
         command = buff.unpack_string()
 
